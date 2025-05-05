@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>GeoJSON → PBF タイル変換クライアント</title>
+</head>
+<body>
+  <h2>GeoJSON → PBF タイル変換</h2>
+
+  <label>GeoJSONのURL：</label>
+  <input type="text" id="geojsonUrl" style="width: 60%;" placeholder="https://example.com/data.geojson" />
+  <button onclick="loadFromUrl()">URLから変換</button>
+  <br><br>
+
+  <label>またはファイルを選択：</label>
+  <input type="file" id="geojsonFile" accept=".json,.geojson" />
+  <button onclick="uploadFromFile()">ファイルから変換</button>
+
+  <pre id="status"></pre>
+
+  <script>
+    const apiBase = "https://public-data-gamma.vercel.app";
+
+    async function loadFromUrl() {
+      const url = document.getElementById('geojsonUrl').value.trim();
+      if (!url) return alert("URLを入力してください");
+      const status = document.getElementById('status');
+      status.textContent = "URLを読み込み中...";
+
+      try {
+        const loadRes = await fetch(apiBase + "/load?url=" + encodeURIComponent(url));
+        if (!loadRes.ok) throw new Error("読み込み失敗");
+        status.textContent = "読み込み成功、タイル例を取得中...";
+
+        const tile = await fetch(apiBase + "/tile/14/14523/6487.pbf");
+        const blob = await tile.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "tile.pbf";
+        a.click();
+
+        status.textContent = "tile.pbf をダウンロードしました";
+      } catch (e) {
+        console.error(e);
+        status.textContent = "エラー: " + e.message;
+      }
+    }
+
+    async function uploadFromFile() {
+      const fileInput = document.getElementById('geojsonFile');
+      const file = fileInput.files[0];
+      if (!file) return alert("ファイルを選択してください");
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const geojson = JSON.parse(reader.result);
+        const blob = new Blob([JSON.stringify(geojson)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        document.getElementById('geojsonUrl').value = url;
+        loadFromUrl();
+      };
+      reader.readAsText(file);
+    }
+  </script>
+</body>
+</html>
