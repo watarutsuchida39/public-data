@@ -1,0 +1,45 @@
+name: Convert GeoJSON to FlatGeobuf
+
+on:
+  push:
+    paths:
+      - 'input/*.geojson'
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v3
+
+      - name: Node.js をセットアップ
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: 依存ライブラリをインストール
+        run: |
+          npm install @flatgeobuf/geojson
+
+      - name: 変換スクリプトを実行
+        run: |
+          mkdir -p output
+          for file in input/*.geojson; do
+            filename=$(basename "$file" .geojson)
+            node -e "
+              import('node:fs').then(fs => {
+                import('@flatgeobuf/geojson').then(fgb => {
+                  const geo = fs.readFileSync('$file', 'utf8');
+                  fgb.serialize(JSON.parse(geo)).then(buf => {
+                    fs.writeFileSync('output/$filename.fgb', Buffer.from(buf));
+                  });
+                });
+              });
+            "
+          done
+
+      - name: アーティファクトとして保存
+        uses: actions/upload-artifact@v3
+        with:
+          name: converted-fgb
+          path: output/*.fgb
