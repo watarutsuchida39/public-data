@@ -69,8 +69,8 @@
       }
 
       Promise.all([
-        loadFGBasGeoJSON('data/pop-density.fgb'),
-        loadFGBasGeoJSON('data/combini-points.fgb')
+         loadFGBasGeoJSON('https://raw.githubusercontent.com/watarutsuchida39/public-data/main/data/pop-density.fgb'),
+        loadFGBasGeoJSON('https://raw.githubusercontent.com/watarutsuchida39/public-data/main/data/combini-points.fgb')
       ]).then(([densityData, combiniData]) => {
         const densityFeatures = densityData.features.filter(f => {
           const d = f.properties.density || 0;
