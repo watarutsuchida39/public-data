@@ -46,19 +46,29 @@
       };
 
       const deckgl = new deck.DeckGL({
-        container: 'container',
-        mapStyle: 'https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-        initialViewState: {
-          longitude: 139.5845,
-          latitude: 35.2978,
-          zoom: 11,
-          pitch: 45,
-          bearing: 0,
-          maxPitch: 85
-        },
-        controller: true,
-        layers: []
-      });
+  container: 'container',
+  mapStyle: 'https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  initialViewState: {
+    longitude: 139.5845,
+    latitude: 35.2978,
+    zoom: 11,
+    pitch: 60,        // 初期の傾き
+    bearing: 0,
+    maxPitch: 85,
+    minZoom: 3,
+    maxZoom: 20
+  },
+  controller: {
+    dragPan: true,
+    dragRotate: true,     // ←回転を許可
+    scrollZoom: true,
+    doubleClickZoom: true,
+    touchRotate: true,    // ←モバイルでの回転も許可
+    keyboard: true
+  },
+  layers: []
+});
+
 
       async function loadGeoJSON(url) {
   const res = await fetch(url);
