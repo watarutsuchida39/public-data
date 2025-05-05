@@ -39,7 +39,7 @@ jobs:
           done
 
       - name: アーティファクトとして保存
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3.1.3
         with:
           name: converted-fgb
           path: output/*.fgb
