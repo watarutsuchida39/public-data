@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GeoJSON → FlatGeobuf</title>
+  <script type="module">
+    import * as fgb from 'https://cdn.jsdelivr.net/npm/@flatgeobuf/geojson/+esm';
+
+    const url = 'https://raw.githubusercontent.com/kikkia/ConbiniWars/master/frontend/assets/all_points.geojson';
+    const log = msg => {
+      const p = document.createElement('p');
+      p.textContent = msg;
+      document.body.appendChild(p);
+    };
+
+    async function run() {
+      try {
+        log('GeoJSON読み込み中...');
+        const res = await fetch(url);
+        const geo = await res.json();
+
+        log('FlatGeobufに変換中...');
+        const buf = await fgb.serialize(geo);
+
+        log('変換完了！リンクを表示します');
+        const blob = new Blob([buf], {type:'application/octet-stream'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'converted.fgb';
+        a.textContent = 'Download FlatGeobuf';
+        document.body.appendChild(a);
+      } catch (e) {
+        log('エラー: ' + e.message + '（詳細はコンソール参照）');
+        console.error(e);
+      }
+    }
+
+    run();
+  </script>
+</head>
+<body>
+  <h1>GeoJSON → FlatGeobuf 変換</h1>
+</body>
+</html>
