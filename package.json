@@ -1,8 +1,9 @@
 {
   "type": "module",
   "dependencies": {
-    "geojson-vt": "^3.2.1",
-    "vt-pbf": "^3.1.1",
-    "node-fetch": "^3.3.1"
-  }
+  "geojson-vt": "^3.2.1",
+  "vt-pbf": "^3.1.1",
+  "node-fetch": "^3.3.1",
+  "@mapbox/tilebelt": "^1.0.0"
+}
 }
