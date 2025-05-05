@@ -60,17 +60,14 @@
         layers: []
       });
 
-      async function loadFGBasGeoJSON(url) {
-        const res = await fetch(url);
-        const it = flatgeobuf.deserialize(res.body);
-        const features = [];
-        for await (const f of it) features.push(f);
-        return { type: 'FeatureCollection', features };
-      }
+      async function loadGeoJSON(url) {
+  const res = await fetch(url);
+  return await res.json();
+}
 
-      Promise.all([
-         loadFGBasGeoJSON('https://raw.githubusercontent.com/watarutsuchida39/public-data/main/data/pop-density.fgb'),
-        loadFGBasGeoJSON('https://raw.githubusercontent.com/watarutsuchida39/public-data/main/data/combini-points.fgb')
+Promise.all([
+  loadGeoJSON('../data/pop-density.json'),
+  loadGeoJSON('../data/combini-points.json')
       ]).then(([densityData, combiniData]) => {
         const densityFeatures = densityData.features.filter(f => {
           const d = f.properties.density || 0;
