@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Deck.gl 等高線 + コンビニ + 人口密度</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://unpkg.com/deck.gl@8.9.28/dist.min.js"></script>
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.js"></script>
+    <link href="https://api.tiles.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.css" rel="stylesheet" />
+    <style>
+      html, body, #container {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        font-family: sans-serif;
+      }
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2;
+        background: white;
+        padding: 1em 2em;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container"></div>
+    <div id="loading">地図を読み込んでいます...</div>
+    <script>
+      const toRadians = deg => deg * Math.PI / 180;
+      const getDistance = (a, b) => {
+        const R = 6371000;
+        const dLat = toRadians(b[1] - a[1]);
+        const dLon = toRadians(b[0] - a[0]);
+        const lat1 = toRadians(a[1]);
+        const lat2 = toRadians(b[1]);
+        const aVal = Math.sin(dLat/2)**2 + Math.sin(dLon/2)**2 * Math.cos(lat1) * Math.cos(lat2);
+        return R * 2 * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
+      };
+
+      const deckgl = new deck.DeckGL({
+        container: 'container',
+        mapStyle: 'https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+                initialViewState: {
+          longitude: 139.5845,
+          latitude: 35.2978,
+          zoom: 11,
+          pitch: 45,
+          bearing: 0,
+          maxPitch: 85
+        },
+        controller: true,
+        layers: []
+      });
+
+      Promise.all([
+        fetch('https://raw.githubusercontent.com/watarutsuchida39/public-data/main/pop-density.json').then(r => r.json()),
+        fetch('https://raw.githubusercontent.com/watarutsuchida39/public-data/main/combini-points.json').then(r => r.json())
+      ]).then(([densityData, combiniData]) => {
+        const densityFeatures = densityData.features.filter(f => {
+          const d = f.properties.density || 0;
+          return d >= 2000 && d <= 6000;
+        });
+
+        const combiniFeatures = combiniData.features.map(point => {
+          const coord = point.geometry.coordinates;
+          const near = densityFeatures.some(f => {
+            const center = f.geometry.coordinates;
+            return getDistance(coord, center) < 1000;
+          });
+          point.properties._highlight = near;
+          return point;
+        });
+
+        document.getElementById('loading').style.display = 'none';
+
+        deckgl.setProps({
+          layers: [
+            new deck.GeoJsonLayer({
+              id: 'pop-density',
+              data: densityData,
+              filled: true,
+              pickable: true,
+              pointRadiusMinPixels: 4,
+              
+              getFillColor: f => {
+                const d = f.properties.density || 0;
+                if (d >= 2000 && d <= 6000) return [255, 0, 0, 220];
+                const norm = Math.min(d / 5000, 1);
+                const red = Math.floor(255 * norm);
+                return [red, 50, 50, 51];
+              }
+
+            }),
+            new deck.GeoJsonLayer({
+              id: 'combini-points',
+              data: {
+                type: 'FeatureCollection',
+                features: combiniFeatures
+              },
+              filled: true,
+              getFillColor: f => f.properties._highlight ? [0, 0, 255, 255] : [0, 255, 255, 120],
+              pointRadiusMinPixels: 10,
+              pickable: true
+            })
+          ]
+        });
+      }).catch(err => {
+        document.getElementById('loading').textContent = '読み込み失敗: ' + err;
+      });
+    </script>
+  </body>
+</html>
