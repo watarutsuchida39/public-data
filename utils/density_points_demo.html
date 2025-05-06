@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Deck.gl + FGB bbox‑grid dedup</title>
+    <script src="https://unpkg.com/deck.gl@8.9.28/dist.min.js"></script>
+    <script src="https://unpkg.com/flatgeobuf@3.32.0/dist/flatgeobuf-geojson.min.js"></script>
+    <link
+      href="https://api.tiles.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.css"
+      rel="stylesheet"
+    />
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.js"></script>
+    <style>
+      html,
+      body,
+      #map {
+        margin: 0;
+        height: 100%;
+      }
+      #log {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: rgba(0, 0, 0, 0.8);
+        color: #0f0;
+        font: 11px monospace;
+        max-height: 90px;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="log"></div>
+    <script>
+      // ---------- utilities ----------
+      const logEl = document.getElementById("log");
+      const log = (msg) => {
+        logEl.insertAdjacentHTML(
+          "beforeend",
+          `<div>${new Date().toLocaleTimeString()} ${msg}</div>`
+        );
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      // --- bbox key helpers（0.2°グリッドで重複防止） ---
+      const STEP = 0.2;
+      const round = (g) => Math.floor(g / STEP) * STEP;
+      const keyFromBbox = (b) =>
+        [round(b.minX), round(b.minY), round(b.maxX), round(b.maxY)].join(",");
+      const viewStateToBbox = (v) => {
+        const vp = new deck.WebMercatorViewport(v);
+        const nw = vp.unproject([0, 0]),
+          se = vp.unproject([vp.width, vp.height]);
+        return { minX: nw[0], minY: se[1], maxX: se[0], maxY: nw[1] };
+      };
+
+      // --- state ---
+      const fetchedKeys = new Set();
+      let densityPts = [],
+        combiniPts = [];
+
+      // --- colour (white→red, α) ---
+      const dColor = (d) => {
+        if (typeof d !== "number") return [180, 180, 180, 60];
+        const t = Math.max(0, Math.min((d - 2000) / 4000, 1));
+        return [
+          255,
+          255 * (1 - t),
+          255 * (1 - t),
+          d >= 2000 && d <= 6000 ? 255 : 51,
+        ];
+      };
+
+      // --- combini icon (24×24 SVG) ---
+      const iconAtlas =
+        "data:image/svg+xml;base64," +
+        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIy" +
+        "NCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZyBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIg" +
+        "c3Ryb2tlLXdpZHRoPSIxLjUiPjxwYXRoIGQ9Ik0zIDEwdjlhMiAyIDAgMCAwIDIgMmgxNGEyIDIgMCAw" +
+        "IDAgMi0ydi05Ii8+PHBhdGggc3Ryb2tlLW1pdGVybGltaXQ9IjE2IiBkPSJNMTQuODMzIDIxdi02YTIg" +
+        "MiAwIDAgMC0yLTJoLTJhMiAyIDAgMCAwLTIgMnY2Ii8+PHBhdGggZD0ibTIxLjgxOCA5LjM2NGwtMS42" +
+        "OTQtNS45MjlBLjYuNiAwIDAgMCAxOS41NDcgM0gxNS41bC40NzUgNS43MDRhLjU4LjU4IDAgMCAwIC4y" +
+        "NzguNDVjLjM5LjIzMyAxLjE1Mi42NjMgMS43NDcuODQ2YzEuMDE2LjMxMyAyLjUuMiAzLjM0Ni4wOTZh" +
+        "LjU3LjU3IDAgMCAwIC40NzItLjczMloiLz48cGF0aCBkPSJNMTQgMTBjLjU2OC0uMTc1IDEuMjg4LS41" +
+        "NzQgMS42OS0uODEyYS41OC41OCAwIDAgMCAuMjgtLjU0OUwxNS41IDNoLTdsLS40NyA1LjYzOWEuNTgu" +
+        "NTggMCAwIDAgLjI4LjU1Yy40MDIuMjM3IDEuMTIyLjYzNiAxLjY5LjgxMWMxLjQ5My40NiAyLjUwNy40" +
+        "NiA0IDBaIi8+PHBhdGggZD0ibTMuODc2IDMuNDM1bC0xLjY5NCA1LjkzYS41Ny41NyAwIDAgMCAuNDcy" +
+        "LjczYy44NDUuMTA1IDIuMzMuMjE3IDMuMzQ2LS4wOTVjLjU5NS0uMTgzIDEuMzU4LS42MTMgMS43NDct" +
+        ".ODQ1YS41OC41OCAwIDAgMCAuMjc4LS40NTFMLjU5OCAzSDQuNDUzYS42LjYgMCAwIDAtLjU3Ny40MzVa" +
+        "Ii8+PC9nPjwvc3ZnPg==";
+
+      // --- layer builders ---
+      const layers = (v) => [
+        new deck.ScatterplotLayer({
+          id: "density",
+          data: densityPts,
+          getPosition: (f) => f.geometry.coordinates,
+          getRadius: () => 1,
+          radiusMinPixels: 15,
+          getFillColor: (f) => dColor(f.properties?.density),
+          pickable: false,
+        }),
+        new deck.IconLayer({
+          id: "combini",
+          data: combiniPts,
+          getPosition: (f) => f.geometry.coordinates,
+          getIcon: () => "m",
+          sizeUnits: "pixels",
+          sizeScale: 2.5,
+          getSize: 24,
+          // iconAtlas,
+          iconAtlas:
+            // "https://api.iconify.design/iconoir/shop.png?width=24&height=24",
+            "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZyBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIxLjUiPjxwYXRoIGQ9Ik0zIDEwdjlhMiAyIDAgMCAwIDIgMmgxNGEyIDIgMCAwIDAgMi0ydi05Ii8+PHBhdGggc3Ryb2tlLW1pdGVybGltaXQ9IjE2IiBkPSJNMTQuODMzIDIxdi02YTIgMiAwIDAgMC0yLTJoLTJhMiAyIDAgMCAwLTIgMnY2Ii8+PHBhdGggZD0ibTIxLjgxOCA5LjM2NGwtMS42OTQtNS45MjlBLjYuNiAwIDAgMCAxOS41NDcgM0gxNS41bC40NzUgNS43MDRhLjU4LjU4IDAgMCAwIC4yNzguNDVjLjM5LjIzMyAxLjE1Mi42NjMgMS43NDcuODQ2YzEuMDE2LjMxMyAyLjUuMiAzLjM0Ni4wOTZhLjU3LjU3IDAgMCAwIC40NzItLjczMloiLz48cGF0aCBkPSJNMTQgMTBjLjU2OC0uMTc1IDEuMjg4LS41NzQgMS42OS0uODEyYS41OC41OCAwIDAgMCAuMjgtLjU0OUwxNS41IDNoLTdsLS40NyA1LjYzOWEuNTguNTggMCAwIDAgLjI4LjU1Yy40MDIuMjM3IDEuMTIyLjYzNiAxLjY5LjgxMWMxLjQ5My40NiAyLjUwNy40NiA0IDBaIi8+PHBhdGggZD0ibTMuODc2IDMuNDM1bC0xLjY5NCA1LjkzYS41Ny41NyAwIDAgMCAuNDcyLjczYy44NDUuMTA1IDIuMzMuMjE3IDMuMzQ2LS4wOTVjLjU5NS0uMTgzIDEuMzU4LS42MTMgMS43NDctLjg0NWEuNTguNTggMCAwIDAgLjI3OC0uNDUxTDguNSAzSDQuNDUzYS42LjYgMCAwIDAtLjU3Ny40MzVaIi8+PC9nPjwvc3ZnPg==",
+          iconMapping: {
+            m: { x: 0, y: 0, width: 24, height: 24, anchorY: 12 },
+          },
+          visible: v.zoom >= 12,
+        }),
+      ];
+
+      // --- deck.gl ---
+      let debounce = null;
+      const deckgl = new deck.DeckGL({
+        container: "map",
+        mapStyle:
+          "https://tiles.basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        initialViewState: { longitude: 139.4, latitude: 35.4, zoom: 10.5 },
+        controller: true,
+        onViewStateChange: ({ viewState, interactionState }) => {
+          if (interactionState.isDragging) return;
+          clearTimeout(debounce);
+          debounce = setTimeout(() => update(viewState), 300);
+        },
+      });
+
+      // --- data fetch ---
+      const densityURL =
+        "https://raw.githubusercontent.com/watarutsuchida39/public-data/main/data/pop-density.fgb";
+      const combiniURL =
+        "https://raw.githubusercontent.com/watarutsuchida39/public-data/main/data/combini-points.fgb";
+
+      async function fetchIfNeeded(v) {
+        if (v.zoom < 6) return;
+        const bbox = viewStateToBbox(v);
+        const key = keyFromBbox(bbox);
+        if (fetchedKeys.has(key)) {
+          log("skip " + key);
+          return;
+        }
+        fetchedKeys.add(key);
+        log("fetch " + key);
+
+        const [dens, comb] = await Promise.all([
+          (async () => {
+            const it = flatgeobuf.deserialize(densityURL, bbox);
+            const a = [];
+            for await (const f of it) a.push(f);
+            return a;
+          })(),
+          (async () => {
+            const it = flatgeobuf.deserialize(combiniURL, bbox);
+            const a = [];
+            for await (const f of it) a.push(f);
+            return a;
+          })(),
+        ]);
+        densityPts = densityPts.concat(dens);
+        combiniPts = combiniPts.concat(comb);
+      }
+
+      // --- update ---
+      async function update(v) {
+        await fetchIfNeeded(v);
+        deckgl.setProps({ layers: layers(v) });
+      }
+      update(deckgl.viewState);
+    </script>
+  </body>
+</html>
